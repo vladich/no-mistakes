@@ -32,9 +32,10 @@ Absolute path to a `cowtree` executable that supports `COWTREE_ADD_DONOR`.
 When set in the daemon's effective environment, run worktrees are created from
 the registered working checkout using verified copy-on-write clones. Creation
 fails if the donor, filesystem, or receipt cannot prove that at least one file
-was cloned; the incomplete worktree is retained for inspection. The daemon also
-accepts `ATER_COW_COWTREE` when the explicit setting is absent, so a hosted
-agent launcher can supply its pinned `cowtree` binary. Restart the daemon after
+was cloned. A failed creation removes its partial worktree and reports bounded
+tool diagnostics; if cleanup fails, the error names the remaining path. The
+daemon also accepts `ATER_COW_COWTREE` when the explicit setting is absent, so a
+hosted agent launcher can supply its pinned `cowtree` binary. Restart the daemon after
 changing either variable.
 
 |         |                     |

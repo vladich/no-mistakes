@@ -1,22 +1,27 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/kunchenguid/no-mistakes/internal/safeurl"
 	"github.com/kunchenguid/no-mistakes/internal/shellenv"
 )
 
+const maxCoWDiagnosticBytes = 8 << 10
+
 // WorktreeAddCoW creates a detached gate worktree using verified files from an
 // independent checkout. A bare gate has no checked-out donor of its own.
-// cowtree retains an incomplete worktree for inspection when creation fails.
-func WorktreeAddCoW(ctx context.Context, gateDir, wtPath, sha, donorPath, cowtreePath string) error {
+// A failed creation removes only the target path this call found absent before
+// invoking cowtree, so an incomplete checkout cannot accumulate across runs.
+func WorktreeAddCoW(ctx context.Context, gateDir, wtPath, sha, donorPath, cowtreePath string) (retErr error) {
 	for name, path := range map[string]string{
 		"gate": gateDir, "worktree": wtPath, "donor": donorPath, "cowtree": cowtreePath,
 	} {
@@ -27,6 +32,19 @@ func WorktreeAddCoW(ctx context.Context, gateDir, wtPath, sha, donorPath, cowtre
 	if !isBareGitDir(gateDir) {
 		return fmt.Errorf("CoW gate is not a bare repository")
 	}
+	if _, err := os.Lstat(wtPath); err == nil {
+		return fmt.Errorf("CoW worktree path already exists: %s", wtPath)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("check CoW worktree path: %w", err)
+	}
+	defer func() {
+		if retErr == nil {
+			return
+		}
+		if err := cleanupFailedCoWWorktree(gateDir, wtPath); err != nil {
+			retErr = fmt.Errorf("%w; incomplete worktree cleanup at %s: %v", retErr, wtPath, err)
+		}
+	}()
 	cmd := exec.CommandContext(ctx, cowtreePath, "add", "--detach", wtPath, sha)
 	cmd.Dir = gateDir
 	env := make([]string, 0, len(os.Environ())+3)
@@ -43,17 +61,50 @@ func WorktreeAddCoW(ctx context.Context, gateDir, wtPath, sha, donorPath, cowtre
 		env = append(env, "PATH="+original)
 	}
 	cmd.Env = env
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	stdout := &cowDiagnosticBuffer{}
+	stderr := &cowDiagnosticBuffer{}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	shellenv.ConfigureShellCommand(cmd)
 	err := shellenv.RunShellCommand(cmd)
 	if err != nil {
-		return fmt.Errorf("cowtree add: %w (incomplete worktree retained for inspection)", err)
+		return fmt.Errorf("cowtree add: %w%s", err, cowDiagnostics(stdout, stderr))
 	}
 	receiptPath, err := Run(ctx, wtPath, "rev-parse", "--git-path", "cowtree-creation")
 	if err != nil {
-		return fmt.Errorf("locate CoW creation receipt: %w", err)
+		return fmt.Errorf("locate CoW creation receipt: %w%s", err, cowDiagnostics(stdout, stderr))
 	}
+	if err := verifyCoWCreationReceipt(receiptPath, sha); err != nil {
+		return fmt.Errorf("%w%s", err, cowDiagnostics(stdout, stderr))
+	}
+	return nil
+}
+
+func cleanupFailedCoWWorktree(gateDir, wtPath string) error {
+	if _, err := os.Lstat(wtPath); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := WorktreeRemove(ctx, gateDir, wtPath); err != nil {
+		// cowtree may have failed before Git registered the worktree. The path
+		// was absent at entry and this call owns the target, so remove it here.
+		if removeErr := os.RemoveAll(wtPath); removeErr != nil {
+			return fmt.Errorf("git worktree remove: %v; remove partial directory: %w", err, removeErr)
+		}
+	}
+	if _, err := os.Lstat(wtPath); !os.IsNotExist(err) {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("partial worktree still exists")
+	}
+	return nil
+}
+
+func verifyCoWCreationReceipt(receiptPath, sha string) error {
 	data, err := os.ReadFile(receiptPath)
 	if err != nil {
 		return fmt.Errorf("read CoW creation receipt: %w", err)
@@ -73,4 +124,47 @@ func WorktreeAddCoW(ctx context.Context, gateDir, wtPath, sha, donorPath, cowtre
 		return fmt.Errorf("CoW creation receipt does not prove cloning for %s", sha)
 	}
 	return nil
+}
+
+// Keep tool diagnostics useful without allowing a noisy subprocess to grow the
+// daemon's memory or a run error without bound. A short write reports success
+// to the child so diagnostics never change the creation result.
+type cowDiagnosticBuffer struct {
+	buf       bytes.Buffer
+	truncated bool
+}
+
+func (b *cowDiagnosticBuffer) Write(p []byte) (int, error) {
+	written := len(p)
+	if remaining := maxCoWDiagnosticBytes - b.buf.Len(); remaining > 0 {
+		if len(p) > remaining {
+			b.truncated = true
+			p = p[:remaining]
+		}
+		_, _ = b.buf.Write(p)
+	} else if written > 0 {
+		b.truncated = true
+	}
+	return written, nil
+}
+
+func cowDiagnostics(stdout, stderr *cowDiagnosticBuffer) string {
+	var parts []string
+	for _, stream := range []struct {
+		name string
+		buf  *cowDiagnosticBuffer
+	}{{"stderr", stderr}, {"stdout", stdout}} {
+		message := strings.TrimSpace(stream.buf.buf.String())
+		if message == "" && !stream.buf.truncated {
+			continue
+		}
+		if stream.buf.truncated {
+			message += " [truncated]"
+		}
+		parts = append(parts, stream.name+": "+safeurl.RedactText(message))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, "; ") + ")"
 }
