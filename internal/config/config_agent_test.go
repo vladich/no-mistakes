@@ -396,7 +396,7 @@ func TestResolveAgent_AutoSkipsRovoDevWithoutSubcommand(t *testing.T) {
 
 	err := cfg.ResolveAgent(context.Background(), func(bin string) (string, error) {
 		switch bin {
-		case "claude", "codex", "grok", "opencode", "pi", "copilot", "agy", "cursor-agent", "devin", "acpx":
+		case "claude", "codex", "grok", "opencode", "pi", "copilot", "agy", "deepcode", "qwen", "cursor-agent", "devin", "acpx":
 			return "", &exec.Error{Name: bin, Err: exec.ErrNotFound}
 		case "acli":
 			return "/usr/bin/acli", nil

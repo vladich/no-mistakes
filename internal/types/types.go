@@ -300,6 +300,8 @@ const (
 	AgentCursor      AgentName = "cursor"
 	AgentDevin       AgentName = "devin"
 	AgentAntigravity AgentName = "antigravity"
+	AgentDeepCode    AgentName = "deepcode"
+	AgentQwen        AgentName = "qwen"
 )
 
 // ACPAlias describes a first-class agent name that resolves to an ACP target.

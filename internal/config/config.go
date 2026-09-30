@@ -1363,6 +1363,8 @@ var defaultBinary = map[types.AgentName]string{
 	types.AgentPi:          "pi",
 	types.AgentCopilot:     "copilot",
 	types.AgentAntigravity: "agy",
+	types.AgentDeepCode:    "deepcode",
+	types.AgentQwen:        "qwen",
 }
 
 var nativeAgentProbeOrder = []types.AgentName{
@@ -1374,6 +1376,8 @@ var nativeAgentProbeOrder = []types.AgentName{
 	types.AgentPi,
 	types.AgentCopilot,
 	types.AgentAntigravity,
+	types.AgentDeepCode,
+	types.AgentQwen,
 }
 
 func isACPAgent(name types.AgentName) bool {
@@ -1559,7 +1563,7 @@ func (c *Config) resolveConfiguredAgent(ctx context.Context, name types.AgentNam
 		return resolved, err == nil, "auto", err
 	}
 	if _, ok := defaultBinary[name]; !ok && !isACPAgent(name) {
-		return "", false, string(name), fmt.Errorf("unknown agent %q; valid options: auto, claude, codex, grok, rovodev, opencode, pi, copilot, cursor, devin, antigravity, acp:<target> (set 'agent' in ~/.no-mistakes/config.yaml)", name)
+		return "", false, string(name), fmt.Errorf("unknown agent %q; valid options: auto, claude, codex, grok, rovodev, opencode, pi, copilot, cursor, devin, antigravity, deepcode, qwen, acp:<target> (set 'agent' in ~/.no-mistakes/config.yaml)", name)
 	}
 	if isACPAgent(name) {
 		available, bins, err := c.acpAvailable(name, lookPath)
@@ -1790,12 +1794,24 @@ var agentArgsOverrideAgents = map[string]bool{
 	string(types.AgentPi):          true,
 	string(types.AgentCopilot):     true,
 	string(types.AgentAntigravity): true,
+	string(types.AgentDeepCode):    true,
+	string(types.AgentQwen):        true,
 }
 
 // reservedAgentArgs lists flags that no-mistakes manages internally and that
 // users cannot override through agent_args_override. A flag is matched by its
 // bare form (e.g. "--color") as well as the "--color=value" form.
 var reservedAgentArgs = map[string]map[string]bool{
+	string(types.AgentDeepCode): {
+		"-p": true, "--prompt": true, "-x": true, "--exec": true,
+		"-r": true, "--resume": true, "-f": true, "--fork": true, "-l": true, "--last": true,
+	},
+	string(types.AgentQwen): {
+		"-p": true, "--prompt": true, "-i": true, "--prompt-interactive": true,
+		"-o": true, "--output-format": true, "--input-format": true, "--json-schema": true,
+		"-r": true, "--resume": true, "-c": true, "--continue": true, "--session-id": true,
+		"--fork-session": true, "--acp": true, "--experimental-acp": true, "--worktree": true,
+	},
 	string(types.AgentAntigravity): {
 		"--dangerously-skip-permissions": true,
 		"--print":                        true,

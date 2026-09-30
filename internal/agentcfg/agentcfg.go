@@ -285,6 +285,12 @@ var harnesses = map[types.AgentName]harness{
 	// refused here rather than emitted and silently ignored.
 	types.AgentRovoDev:     {model: unsupported(), effort: unsupported()},
 	types.AgentAntigravity: {model: unsupported(), effort: unsupported()},
+	// Deep Code 0.3.1 selects both knobs through its native settings.
+	types.AgentDeepCode: {model: unsupported(), effort: unsupported()},
+	types.AgentQwen: {
+		model:  knob{mechanism: MechanismArgs, args: flagArgs("--model"), pinned: flagPinned("--model", "-m")},
+		effort: unsupported(),
+	},
 }
 
 // acpHarness covers every ACP-driven name: the first-class aliases (cursor, devin) and
