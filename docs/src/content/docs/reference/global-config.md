@@ -226,6 +226,8 @@ Default native binary names when no override is set:
 | `pi`       | `pi`       |
 | `copilot`  | `copilot`  |
 | `antigravity` | `agy`      |
+| `deepcode` | `deepcode` |
+| `qwen` | `qwen` |
 
 ### agent_config
 
@@ -265,6 +267,8 @@ How each field maps:
 | `opencode`        | session-message `model` (needs `provider/model`) | session-message `variant`      | provider-specific                                   |
 | `cursor`, `devin`, `acp:*` | `acpx --model`                       | not expressible                   | -                                                   |
 | `rovodev`         | not expressible                               | not expressible                   | -                                                   |
+| `deepcode` | native user settings | native user settings | - |
+| `qwen` | `--model` | not expressible | - |
 | `antigravity`     | not expressible                               | not expressible                   | -                                                   |
 
 `opencode` needs the `provider/model` form (for example `openai/gpt-5`) because its session API takes the provider and the model as separate fields; a bare model name is refused at config load rather than dropped. Both of its knobs travel in the session message, not in the launch command, because `opencode serve` exits with usage on an unknown flag.
@@ -418,7 +422,7 @@ Use this for anything [`agent_config`](#agent_config) does not cover - service t
 |         |                                                           |
 | ------- | --------------------------------------------------------- |
 | Type    | `map[string][]string`                                     |
-| Keys    | `claude`, `codex`, `grok`, `rovodev`, `opencode`, `pi`, `copilot`, `antigravity` |
+| Keys    | `claude`, `codex`, `grok`, `rovodev`, `opencode`, `pi`, `copilot`, `antigravity`, `deepcode`, `qwen` |
 | Default | Empty (no extra flags)                                    |
 
 User-supplied flags are normally inserted ahead of no-mistakes' managed flags, so your choices usually take precedence. Security suppression selected by trusted [`disable_project_settings`](/no-mistakes/reference/repo-config/#disable_project_settings) may be placed first while preserving a compatible operator pin. A few flags are reserved because no-mistakes depends on them to communicate with the agent - setting any of these returns a config error on load:
@@ -435,6 +439,8 @@ User-supplied flags are normally inserted ahead of no-mistakes' managed flags, s
 | `antigravity` | `--dangerously-skip-permissions`, `--print`, `--json-schema`, `--output-format`, `--conversation`, `-c`, `--continue` |
 
 For structured `codex` runs, no-mistakes also appends its own `--output-schema <tempfile>` after your overrides. Treat that flag as managed even though config validation does not currently reject it.
+Deep Code and Qwen reserve prompt, output and session-control flags. Qwen also reserves ACP and worktree mode flags, since its gate worktree and process mode belong to no-mistakes. Provider selection and Qwen permission flags remain operator-configurable.
+
 The Claude, Codex, Grok, Pi, and Antigravity session-control forms are reserved so no-mistakes can keep review-loop conversations deterministic: review turns stay session-free while the fixer keeps its own isolated durable session.
 
 Smart defaults:
