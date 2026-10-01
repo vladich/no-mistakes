@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
+
 	"github.com/kunchenguid/no-mistakes/internal/agentgitproxy"
 	"github.com/kunchenguid/no-mistakes/internal/config"
 	"github.com/kunchenguid/no-mistakes/internal/git"
@@ -11,10 +15,15 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/shellenv"
 	"github.com/kunchenguid/no-mistakes/internal/worktrees"
 	"github.com/spf13/cobra"
-	"io"
-	"os"
-	"os/exec"
 )
+
+func validateAgentGitExecutable(binary string) error {
+	info, err := os.Stat(binary)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 || info.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("agent Git proxy requires its launcher-validated Git executable")
+	}
+	return nil
+}
 
 func newAgentPublishCmd() *cobra.Command {
 	return &cobra.Command{Use: "agent-publish", Hidden: true, DisableFlagParsing: true,
@@ -39,6 +48,9 @@ func runAgentPublish(cmd *cobra.Command, args []string, hosted bool) error {
 	}
 	if cfg.AgentGitProxy == nil {
 		return fmt.Errorf("automatic publication is not configured")
+	}
+	if err := validateAgentGitExecutable(cfg.AgentGitProxy.GitBinary); err != nil {
+		return err
 	}
 	c, err := agentgitproxy.LoadContext(cfg.AgentGitProxy.ContextFile)
 	if err != nil {

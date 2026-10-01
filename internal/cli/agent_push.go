@@ -46,9 +46,8 @@ func runAgentPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	info, err := os.Stat(cfg.AgentGitProxy.GitBinary)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 || info.Mode().Perm()&0o111 == 0 {
-		return fmt.Errorf("agent Git proxy requires its launcher-validated Git executable")
+	if err := validateAgentGitExecutable(cfg.AgentGitProxy.GitBinary); err != nil {
+		return err
 	}
 	ctx := git.WithExecutable(cmd.Context(), cfg.AgentGitProxy.GitBinary)
 	cmd.SetContext(ctx)
