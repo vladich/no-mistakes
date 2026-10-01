@@ -236,7 +236,7 @@ func runAgentPush(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(receiptDir, 0o700); err != nil {
 		return err
 	}
-	info, err = os.Lstat(receiptDir)
+	info, err := os.Lstat(receiptDir)
 	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
 		return fmt.Errorf("agent Git proxy receipt directory is not private")
 	}
