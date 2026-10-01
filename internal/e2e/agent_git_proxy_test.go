@@ -93,6 +93,9 @@ func TestAgentGitProxyAutomaticPublicationJourney(t *testing.T) {
 	if output, err := h.Run("agent-push", "--", "origin", "main"); err == nil || (!strings.Contains(string(output), "no completed task validation") && !strings.Contains(string(output), "repo not initialized")) {
 		t.Fatalf("unvalidated canonical publication admitted: %v: %s", err, output)
 	}
+	foreignRemote := filepath.Join(h.NMHome, "another-active-task.git")
+	mustGit(h.WorkDir, "remote", "add", "no-mistakes", foreignRemote)
+	sharedBefore := mustGit(h.WorkDir, "config", "--get-regexp", "^remote\\.no-mistakes\\.")
 	t.Setenv("ATER_COW_COWTREE", creator)
 	t.Setenv("ATER_COW_ORIGINAL_PATH", os.Getenv("PATH"))
 	branch := "task/automatic-proxy"
@@ -112,6 +115,10 @@ func TestAgentGitProxyAutomaticPublicationJourney(t *testing.T) {
 	}
 	if actual := h.UpstreamBranchSHA(branch); actual != head {
 		t.Fatalf("published %s, want %s", actual, head)
+	}
+	sharedAfter := mustGit(h.WorkDir, "config", "--get-regexp", "^remote\\.no-mistakes\\.")
+	if sharedBefore != sharedAfter {
+		t.Fatal("automatic proxy changed another task's shared remote")
 	}
 	first := h.Runs()
 	if len(first) != 1 {

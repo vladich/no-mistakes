@@ -28,12 +28,14 @@ func newInitCmd() *cobra.Command {
 	var forkURL string
 	var worktreeRoot string
 	var skipUserSkill bool
+	var isolated bool
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize no-mistakes gate for the current repository",
 		Long: "Sets up or refreshes a local bare repo as a gate, installs a post-receive hook,\n" +
 			"best-effort isolates the gate hook path from shared local git config writes when Git supports `config --worktree`,\n" +
 			"adds or repairs the \"no-mistakes\" git remote, and records the repo in the database.\n\n" +
+			"Use --isolated with a task-owned NM_HOME to leave shared remotes untouched.\n\n" +
 			"Run this from inside a git repository that has an \"origin\" remote.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -57,7 +59,7 @@ func newInitCmd() *cobra.Command {
 						return err
 					}
 				}
-				repo, created, err := gate.InitWithFork(cmd.Context(), d, p, ".", forkURL)
+				repo, created, err := gate.InitWithOptions(cmd.Context(), d, p, ".", gate.InitOptions{ForkURL: forkURL, Isolated: isolated})
 				if err != nil {
 					return fmt.Errorf("init: %w", err)
 				}
@@ -90,7 +92,11 @@ func newInitCmd() *cobra.Command {
 				fmt.Fprintf(w, "  %s %s\n", sGreen.Render("✓"), headline)
 				fmt.Fprintln(w)
 				fmt.Fprintf(w, "  %s  %s\n", sDim.Render("  repo"), repo.WorkingPath)
-				fmt.Fprintf(w, "  %s  no-mistakes → %s\n", sDim.Render("  gate"), p.RepoDir(repo.ID))
+				if isolated {
+					fmt.Fprintf(w, "  %s  %s (isolated)\n", sDim.Render("  gate"), p.RepoDir(repo.ID))
+				} else {
+					fmt.Fprintf(w, "  %s  no-mistakes → %s\n", sDim.Render("  gate"), p.RepoDir(repo.ID))
+				}
 				remoteURL := repo.UpstreamURL
 				if repo.ForkURL != "" {
 					remoteURL = safeurl.Redact(remoteURL)
@@ -114,13 +120,18 @@ func newInitCmd() *cobra.Command {
 				}
 				fmt.Fprintln(w)
 				fmt.Fprintf(w, "  %s\n", sDim.Render("Push through the gate with:"))
-				fmt.Fprintf(w, "  %s\n", sBold.Render("git push no-mistakes <branch>"))
+				if isolated {
+					fmt.Fprintf(w, "  %s\n", sBold.Render("no-mistakes axi run --intent \"<task goal>\""))
+				} else {
+					fmt.Fprintf(w, "  %s\n", sBold.Render("git push no-mistakes <branch>"))
+				}
 				return nil
 			})
 		},
 	}
 	cmd.Flags().StringVar(&forkURL, "fork-url", "", "GitHub fork remote URL to push branches to while opening PRs against origin")
 	cmd.Flags().StringVar(&worktreeRoot, "worktree-root", "", "Directory to create this repository's run worktrees in, so directory-scoped toolchain config (mise, direnv) reaches them; prints the worktree_roots entry to add to the global config")
+	cmd.Flags().BoolVar(&isolated, "isolated", false, "Use the private NM_HOME gate without changing shared git remotes")
 	cmd.Flags().BoolVar(&skipUserSkill, "no-user-skill", false, "do not install the no-mistakes skill into the user's agent configuration")
 	return cmd
 }

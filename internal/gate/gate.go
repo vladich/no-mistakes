@@ -55,6 +55,22 @@ func Init(ctx context.Context, d *db.DB, p *paths.Paths, workDir string) (*db.Re
 // remains the parent repository used for PRs. When forkURL is empty, an
 // existing fork setting is preserved across idempotent refreshes.
 func InitWithFork(ctx context.Context, d *db.DB, p *paths.Paths, workDir, forkURL string) (*db.Repo, bool, error) {
+	return InitWithOptions(ctx, d, p, workDir, InitOptions{ForkURL: forkURL})
+}
+
+// InitOptions controls gate registration. Isolated leaves the working
+// repository's shared remote configuration untouched; AXI submits directly to
+// the private gate selected by NM_HOME instead.
+type InitOptions struct {
+	ForkURL  string
+	Isolated bool
+}
+
+// InitWithOptions creates or refreshes a gate in the selected app state.
+// Separate NM_HOME roots can register the same primary repository without
+// competing for its shared no-mistakes remote when Isolated is set.
+func InitWithOptions(ctx context.Context, d *db.DB, p *paths.Paths, workDir string, opts InitOptions) (*db.Repo, bool, error) {
+	forkURL := opts.ForkURL
 	if classified, err := (gatecontext.Inspector{DB: d, Paths: p}).Inspect(ctx, gatecontext.Request{CWD: workDir, MarkerPresent: gatecontext.MarkerPresent()}); err != nil {
 		return nil, false, err
 	} else if classified.Nested {
@@ -76,7 +92,7 @@ func InitWithFork(ctx context.Context, d *db.DB, p *paths.Paths, workDir, forkUR
 	if err != nil {
 		return nil, false, fmt.Errorf("check existing: %w", err)
 	}
-	if existing == nil {
+	if existing == nil && !opts.Isolated {
 		// No record at this path, but the repo may have been moved or renamed
 		// after init; if so, reattach its existing gate instead of failing on
 		// the leftover remote.
@@ -133,16 +149,22 @@ func InitWithFork(ctx context.Context, d *db.DB, p *paths.Paths, workDir, forkUR
 	bareDir := p.RepoDir(id)
 
 	// Provision (or repair) the on-disk gate. This is idempotent.
-	if err := provisionGate(ctx, bareDir, absRoot, upstreamURL, p.ReposDir(), existing != nil); err != nil {
+	provisionErr := provisionGate(ctx, bareDir, upstreamURL)
+	if provisionErr == nil && !opts.Isolated {
+		if err := ensureWorkingRemote(ctx, absRoot, bareDir, p.ReposDir()); err != nil {
+			provisionErr = fmt.Errorf("add remote: %w", err)
+		}
+	}
+	if provisionErr != nil {
 		// Only tear down a gate we created in this call; never destroy an
 		// already-initialized gate when a repair pass fails.
 		if existing == nil {
-			if remoteURL, remoteErr := git.GetRemoteURL(ctx, absRoot, RemoteName); remoteErr == nil && remoteURL == bareDir {
-				git.RemoveRemote(ctx, absRoot, RemoteName)
+			if !opts.Isolated {
+				removeOwnedWorkingRemote(ctx, absRoot, bareDir)
 			}
 			os.RemoveAll(bareDir)
 		}
-		return nil, false, err
+		return nil, false, provisionErr
 	}
 
 	// Detect default branch from upstream remote.
@@ -165,8 +187,10 @@ func InitWithFork(ctx context.Context, d *db.DB, p *paths.Paths, workDir, forkUR
 	// Insert repo record with deterministic ID.
 	repo, err := d.InsertRepoWithIDAndFork(id, absRoot, redactedUpstreamURL, forkURL, branch)
 	if err != nil {
-		// Rollback: remove remote and bare repo.
-		git.RemoveRemote(ctx, absRoot, RemoteName)
+		// Rollback only wiring owned by this gate.
+		if !opts.Isolated {
+			removeOwnedWorkingRemote(ctx, absRoot, bareDir)
+		}
 		os.RemoveAll(bareDir)
 		return nil, false, fmt.Errorf("insert repo: %w", err)
 	}
@@ -188,10 +212,9 @@ func validateForkRouting(ctx context.Context, upstreamURL, forkURL string) error
 }
 
 // provisionGate creates or repairs the on-disk gate for a repo: the bare repo,
-// its push/hook configuration, hook-path isolation, and the git remotes wiring
-// the working repo to the gate and the gate to its upstream. Every step is
+// its push/hook configuration, hook-path isolation, and upstream remote. Every step is
 // idempotent so this doubles as the repair path for re-running init.
-func provisionGate(ctx context.Context, bareDir, absRoot, upstreamURL, reposDir string, refresh bool) error {
+func provisionGate(ctx context.Context, bareDir, upstreamURL string) error {
 	// Create the bare repo. git init --bare is a no-op on an existing one.
 	if err := git.InitBare(ctx, bareDir); err != nil {
 		return fmt.Errorf("create bare repo: %w", err)
@@ -223,17 +246,10 @@ func provisionGate(ctx context.Context, bareDir, absRoot, upstreamURL, reposDir 
 		return fmt.Errorf("add gate origin remote: %w", err)
 	}
 
-	if err := ensureWorkingRemote(ctx, absRoot, bareDir, reposDir, refresh); err != nil {
-		return fmt.Errorf("add remote: %w", err)
-	}
-
 	return nil
 }
 
-func ensureWorkingRemote(ctx context.Context, absRoot, bareDir, reposDir string, refresh bool) error {
-	if refresh {
-		return git.EnsureRemote(ctx, absRoot, RemoteName, bareDir)
-	}
+func ensureWorkingRemote(ctx context.Context, absRoot, bareDir, reposDir string) error {
 	existingURL, err := git.GetRemoteURL(ctx, absRoot, RemoteName)
 	if err != nil {
 		return git.AddRemote(ctx, absRoot, RemoteName, bareDir)
@@ -248,6 +264,14 @@ func ensureWorkingRemote(ctx context.Context, absRoot, bareDir, reposDir string,
 		return git.EnsureRemote(ctx, absRoot, RemoteName, bareDir)
 	}
 	return fmt.Errorf("remote %q already exists with url %q", RemoteName, existingURL)
+}
+
+// removeOwnedWorkingRemote never removes wiring that belongs to another task.
+// Isolated gates need no named remote; legacy gates may still own one.
+func removeOwnedWorkingRemote(ctx context.Context, absRoot, bareDir string) {
+	if remoteURL, err := git.GetConfiguredRemoteURL(ctx, absRoot, RemoteName); err == nil && remoteURL == bareDir {
+		_ = git.RemoveRemote(ctx, absRoot, RemoteName)
+	}
 }
 
 // reattachRelocatedRepo detects a working directory that was renamed or moved
@@ -313,11 +337,11 @@ func Eject(ctx context.Context, d *db.DB, p *paths.Paths, workDir string) (*db.R
 		return nil, fmt.Errorf("not initialized for %s", absRoot)
 	}
 
-	// Remove remote from working repo (non-fatal).
-	_ = git.RemoveRemote(ctx, absRoot, RemoteName)
+	bareDir := p.RepoDir(repo.ID)
+	// Remove only this gate's remote from the working repo (non-fatal).
+	removeOwnedWorkingRemote(ctx, absRoot, bareDir)
 
 	// Delete bare repo.
-	bareDir := p.RepoDir(repo.ID)
 	os.RemoveAll(bareDir)
 
 	// Delete worktrees for this repo. This happens before the repo record is

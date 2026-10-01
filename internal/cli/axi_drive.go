@@ -652,7 +652,7 @@ func triggerRun(ctx context.Context, env *axiEnv, branch string, skipSteps []typ
 	if opt := formatReconciledPreviousHeadPushOption(reconciliation.PreviousHead); opt != "" {
 		pushOptions = append(pushOptions, opt)
 	}
-	pushErr := git.PushCommitWithOptionsSkippingHooks(ctx, ".", gate.RemoteName, submissionHead, "refs/heads/"+branch, "", false, pushOptions)
+	pushErr := git.PushCommitWithOptionsSkippingHooks(ctx, ".", env.p.RepoDir(env.repo.ID), submissionHead, "refs/heads/"+branch, "", false, pushOptions)
 	if pushErr != nil {
 		restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), triggerWaitTimeout)
 		restoreErr := gate.RestoreReconciledBranch(restoreCtx, env.p.RepoDir(env.repo.ID), branch, reconciliation)
@@ -736,7 +736,7 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 	if state := freshRunBranchOwnershipState(ctx, env); state != nil {
 		return nil, &branchOwnershipError{state: *state}
 	}
-	pushErr := git.PushCommitWithOptionsSkippingHooks(ctx, ".", gate.RemoteName, headSHA, "refs/heads/"+branch, "", false, pushOptions)
+	pushErr := git.PushCommitWithOptionsSkippingHooks(ctx, ".", env.p.RepoDir(env.repo.ID), headSHA, "refs/heads/"+branch, "", false, pushOptions)
 	if pushErr != nil {
 		if state := freshRunBranchOwnershipState(ctx, env); state != nil {
 			return nil, &branchOwnershipError{state: *state}

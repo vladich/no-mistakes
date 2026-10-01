@@ -42,7 +42,7 @@ func TestProvisionGateDoesNotStampUnsupportedHookIsolation(t *testing.T) {
 	}
 	t.Cleanup(func() { ensureGateHooksPathIsolation = oldEnsure })
 
-	if err := provisionGate(ctx, bareDir, workDir, "https://example.com/repo.git", reposDir, false); err != nil {
+	if err := provisionGate(ctx, bareDir, "https://example.com/repo.git"); err != nil {
 		t.Fatal(err)
 	}
 	if gitpkg.GateConfigCurrent(bareDir) {

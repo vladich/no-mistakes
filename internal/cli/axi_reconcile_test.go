@@ -50,7 +50,10 @@ func TestTriggerRunRejectedPushRestoresReconciledGateRef(t *testing.T) {
 	gateDir := p.RepoDir(repo.ID)
 	cliGit(t, dir, "clone", "--bare", dir, gateDir)
 	cliGit(t, gateDir, "config", "receive.advertisePushOptions", "true")
-	cliGit(t, dir, "remote", "add", gate.RemoteName, gateDir)
+	foreignDir := filepath.Join(t.TempDir(), "active-task.git")
+	cliGit(t, dir, "init", "--bare", foreignDir)
+	cliGit(t, foreignDir, "config", "receive.advertisePushOptions", "true")
+	cliGit(t, dir, "remote", "add", gate.RemoteName, foreignDir)
 	cliGit(t, dir, "reset", "--hard", base)
 	write("advanced.txt", "advanced\n")
 	write("feature.txt", "feature\n")
@@ -88,6 +91,9 @@ func TestTriggerRunRejectedPushRestoresReconciledGateRef(t *testing.T) {
 	runID, err := triggerRun(ctx, env, "main", nil, "", "", false, "")
 	if err == nil || !strings.Contains(err.Error(), "submission-rejected") || runID != "" {
 		t.Fatalf("rejected submission: run=%q err=%v", runID, err)
+	}
+	if got := cliGit(t, foreignDir, "for-each-ref", "--format=%(refname)"); got != "" {
+		t.Fatalf("submission mutated another task gate: %s", got)
 	}
 	if got := cliGit(t, gateDir, "rev-parse", "refs/heads/main"); got != privateHead {
 		t.Fatalf("failed submission left mirror at %s, want restored %s", got, privateHead)

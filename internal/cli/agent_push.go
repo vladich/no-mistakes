@@ -110,6 +110,9 @@ func runAgentPush(cmd *cobra.Command, args []string) error {
 	init.SetContext(ctx)
 	init.SetOut(cmd.OutOrStdout())
 	init.SetErr(cmd.ErrOrStderr())
+	if err := init.Flags().Set("isolated", "true"); err != nil {
+		return err
+	}
 	if err := init.Flags().Set("no-user-skill", "true"); err != nil {
 		return err
 	}

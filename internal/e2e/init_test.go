@@ -247,11 +247,31 @@ func TestInitInSubmoduleRegistersSubmoduleOwnOrigin(t *testing.T) {
 }
 
 func TestInitRollsBackWhenDaemonStartFails(t *testing.T) {
+	testInitRollback(t, false)
+}
+
+func TestIsolatedInitRollback(t *testing.T) {
+	testInitRollback(t, true)
+}
+
+func testInitRollback(t *testing.T, isolated bool) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("this failure fixture blocks a Unix socket endpoint")
 	}
 
 	h := NewHarness(t, SetupOpts{Agent: "claude"})
+	foreign := filepath.Join(t.TempDir(), "active-task.git")
+	if isolated {
+		if out, err := h.runGit(context.Background(), h.WorkDir, "remote", "add", "no-mistakes", foreign); err != nil {
+			t.Fatalf("foreign remote: %v: %s", err, out)
+		}
+	}
+	configFile := filepath.Join(h.WorkDir, ".git", "config")
+	before, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
 	badNMHome := filepath.Join(t.TempDir(), strings.Repeat("a", 160))
 	p := paths.WithRoot(badNMHome)
 	if err := p.EnsureDirs(); err != nil {
@@ -273,7 +293,11 @@ func TestInitRollsBackWhenDaemonStartFails(t *testing.T) {
 	}
 
 	start := time.Now()
-	out, err := h.RunInDirWithEnv(h.WorkDir, env, "init")
+	args := []string{"init", "--no-user-skill"}
+	if isolated {
+		args = append(args, "--isolated")
+	}
+	out, err := h.RunInDirWithEnv(h.WorkDir, env, args...)
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("init should fail when daemon startup fails")
@@ -298,8 +322,20 @@ func TestInitRollsBackWhenDaemonStartFails(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if out, err := h.runGit(ctx, h.WorkDir, "remote", "get-url", "no-mistakes"); err == nil {
-		t.Fatalf("no-mistakes remote should be removed after failed init, got %q", out)
+	remote, remoteErr := h.runGit(ctx, h.WorkDir, "remote", "get-url", "no-mistakes")
+	if isolated {
+		if remoteErr != nil || strings.TrimSpace(string(remote)) != foreign {
+			t.Fatalf("foreign remote changed: %v: %s", remoteErr, remote)
+		}
+		after, err := os.ReadFile(configFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(before) != string(after) {
+			t.Fatal("failed isolated init changed shared config")
+		}
+	} else if remoteErr == nil {
+		t.Fatalf("no-mistakes remote should be removed after failed init, got %q", remote)
 	}
 
 	d, err := db.Open(p.DB())

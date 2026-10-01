@@ -38,6 +38,7 @@ no-mistakes init --no-user-skill
 | ----------------- | -------- | ------- | ------------------------------------------------------------------------------------------------ |
 | `--fork-url`      | `string` | (none)  | GitHub fork remote URL to push branches to while opening PRs against `origin`                  |
 | `--worktree-root` | `string` | (none)  | Directory to create this repository's run worktrees in; prints the `worktree_roots` entry to add |
+| `--isolated` | `bool` | `false` | Register a private NM_HOME gate without modifying shared working-repository remotes |
 | `--no-user-skill` | `bool` | `false` | Skip user-level skill installation for this invocation |
 
 Creates or refreshes a local bare repo, installs the managed pre-receive admission and post-receive notification hooks, best-effort isolates the gate repo's hook path from shared git config changes when Git supports `config --worktree`, adds or repairs the `no-mistakes` git remote, detects the default branch, records or updates the repo in SQLite, installs the `/no-mistakes` agent skill at user level into `~/.claude/skills/no-mistakes/SKILL.md` and `~/.agents/skills/no-mistakes/SKILL.md`, and ensures the daemon is running, installing the managed service when available and falling back to a detached daemon otherwise.
@@ -62,6 +63,20 @@ Runs are created at `<dir>/<run id>` once the entry is in place; no-mistakes onl
 Two refusals apply to every `init`, with or without the flag.
 It refuses to register a checkout that contains a directory an existing [`worktree_roots`](/no-mistakes/reference/global-config/#worktree_roots) entry points at, naming that entry, because registering it is what would make the placement unusable and stop the daemon; place the checkout elsewhere or repoint the entry first.
 It also refuses to register anything while `~/.no-mistakes/config.yaml` does not load, naming the fault, because the daemon refuses to start on that same config.
+
+For simultaneous agent tasks, use a separate task-owned `NM_HOME` and
+`no-mistakes init --isolated --no-user-skill`. Isolated init creates and
+refreshes the private gate without reading, adding, or changing the working
+repository's shared `no-mistakes` remote. Submit with `no-mistakes axi run`:
+AXI routes both ordinary and nonce-bound runs directly to that home’s registered
+gate. The automatic agent Git proxy also initializes in this mode. Existing
+shared remotes remain usable by their owning tasks. Eject and failed-init
+rollback remove only a remote that points to their own gate.
+
+Isolated mode does not use a shared remote to discover a renamed checkout.
+Reinitialize at the new path to register a new gate; the previous home retains
+its old gate and history until explicitly ejected. The interactive setup wizard
+and manual `git push no-mistakes` require standard initialization.
 
 Re-running `init` on an already-initialized repo succeeds and reports `Gate already initialized (refreshed)`.
 It refreshes managed gate wiring, origin/default-branch metadata, hook-path isolation, and the installed agent skill, overwriting any stale `SKILL.md` content from an older binary.
