@@ -248,11 +248,24 @@ func TestInitInSubmoduleRegistersSubmoduleOwnOrigin(t *testing.T) {
 
 func TestInitRollsBackWhenDaemonStartFails(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Windows IPC does not use Unix socket path limits")
+		t.Skip("this failure fixture blocks a Unix socket endpoint")
 	}
 
 	h := NewHarness(t, SetupOpts{Agent: "claude"})
 	badNMHome := filepath.Join(t.TempDir(), strings.Repeat("a", 160))
+	p := paths.WithRoot(badNMHome)
+	if err := p.EnsureDirs(); err != nil {
+		t.Fatalf("prepare failure home: %v", err)
+	}
+	// Long homes use a short private endpoint. A nonempty directory blocks
+	// that actual endpoint even when the listener removes stale socket files.
+	if err := os.Mkdir(p.Socket(), 0o700); err != nil {
+		t.Fatalf("block socket endpoint: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(p.Socket()) })
+	if err := os.WriteFile(filepath.Join(p.Socket(), "blocked"), []byte("fixture"), 0o600); err != nil {
+		t.Fatalf("make endpoint directory nonempty: %v", err)
+	}
 	env := map[string]string{
 		"NM_HOME":                            badNMHome,
 		"NM_TEST_DAEMON_START_TIMEOUT":       "200ms",
@@ -289,7 +302,6 @@ func TestInitRollsBackWhenDaemonStartFails(t *testing.T) {
 		t.Fatalf("no-mistakes remote should be removed after failed init, got %q", out)
 	}
 
-	p := paths.WithRoot(badNMHome)
 	d, err := db.Open(p.DB())
 	if err != nil {
 		t.Fatal(err)
