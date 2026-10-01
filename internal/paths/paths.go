@@ -68,7 +68,7 @@ func WithRoot(root string) *Paths {
 
 func (p *Paths) Root() string       { return p.root }
 func (p *Paths) DB() string         { return filepath.Join(p.root, "state.sqlite") }
-func (p *Paths) Socket() string     { return filepath.Join(p.root, "socket") }
+func (p *Paths) Socket() string     { return socketPath(p.root) }
 func (p *Paths) PIDFile() string    { return filepath.Join(p.root, "daemon.pid") }
 func (p *Paths) ConfigFile() string { return filepath.Join(p.root, "config.yaml") }
 
@@ -171,6 +171,9 @@ func (p *Paths) ServerPIDsDir() string { return filepath.Join(p.root, "servers")
 
 // EnsureDirs creates all required directories under root.
 func (p *Paths) EnsureDirs() error {
+	if err := ensureSocketDir(p.root); err != nil {
+		return err
+	}
 	dirs := []string{
 		p.root,
 		p.ReposDir(),

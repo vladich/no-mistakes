@@ -90,11 +90,18 @@ func (e *Executor) SetForgeContext(ctx *forgecontext.Context) {
 
 // SetSkippedSteps configures steps that should be marked skipped without running.
 func (e *Executor) SetSkippedSteps(steps []types.StepName) {
-	if len(steps) == 0 {
+	proxy := e.config != nil && e.config.AgentGitProxy != nil
+	if len(steps) == 0 && !proxy {
 		e.skips = nil
 		return
 	}
 	e.skips = make(map[types.StepName]bool, len(steps))
+	if proxy {
+		for _, step := range []types.StepName{types.StepTest, types.StepPR, types.StepCI} {
+			e.skips[step] = true
+		}
+		return
+	}
 	for _, step := range steps {
 		e.skips[step] = true
 	}
@@ -121,6 +128,7 @@ func NewExecutor(database *db.DB, p *paths.Paths, cfg *config.Config, ag agent.A
 		// remains for tests and specialized embeddings.
 		exec.SetGateReconcileTimings(cfg.GateReconcileInterval, cfg.GateReconcileTimeout)
 	}
+	exec.SetSkippedSteps(nil)
 	return exec
 }
 

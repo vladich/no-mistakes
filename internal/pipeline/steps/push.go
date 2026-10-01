@@ -136,6 +136,9 @@ func publishRunHead(sctx *pipeline.StepContext, headBeingPushed, localRefUpdate 
 	if err := assertReviewApprovedPushHead(sctx, headBeingPushed); err != nil {
 		return err
 	}
+	if err := assertAgentGitProxyPublication(sctx, branch, pushURL, headBeingPushed); err != nil {
+		return err
+	}
 	// Prove the private mirror is safe to reconcile BEFORE anything is
 	// published: outside the exact run-owned-head exception and the
 	// recovery-anchor preservation credit, unproven private content must
@@ -166,6 +169,11 @@ func publishRunHead(sctx *pipeline.StepContext, headBeingPushed, localRefUpdate 
 	// startRunWithIntentSourceLocked enforces one active run per repo branch, so
 	// coordination with independent authorized publishers is outside its scope.
 	if err := attestHeadBeforePush(sctx, headBeingPushed, attestationSteps); err != nil {
+		return err
+	}
+	// Attestation can perform forge I/O. Re-check the captured assignment and
+	// its live negative fence at the final remote-mutation boundary as well.
+	if err := assertAgentGitProxyPublication(sctx, branch, pushURL, headBeingPushed); err != nil {
 		return err
 	}
 

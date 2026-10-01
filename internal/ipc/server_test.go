@@ -2,11 +2,11 @@ package ipc_test
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
 )
 
 // socketPath returns a short socket path to stay within macOS 104-byte limit.
@@ -16,8 +16,12 @@ func socketPath(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	return filepath.Join(dir, "s.sock")
+	p := paths.WithRoot(dir)
+	if err := p.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(p.Socket()); _ = os.RemoveAll(dir) })
+	return p.Socket()
 }
 
 func startServer(t *testing.T, sock string) *ipc.Server {

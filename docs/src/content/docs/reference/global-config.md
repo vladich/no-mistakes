@@ -730,6 +730,73 @@ The key is matched against the checkout path recorded at `init`. After moving a 
 
 `no-mistakes init --worktree-root <dir>` prints the exact entry to add for the checkout you are initializing. The global config is hand-maintained, so init never rewrites it for you.
 
+### agent_git_proxy
+
+Experimental integration for a session launcher's Git proxy. This global-only
+setting is absent by default; repository configuration cannot enable or alter it.
+It supports admitted task-branch publication to GitLab on macOS and Linux, with
+canonical publication admitted through the existing launcher publisher.
+
+```yaml
+agent_git_proxy:
+  git_binary: /absolute/path/to/real/git
+  context_file: /absolute/path/to/session/git-proxy-context.json
+```
+
+The launcher supplies a private task context containing the exact admitted intent,
+assignment, session, checkout, integration branch and publication destination.
+Its live claim projection must still match, remain held and healthy, and have an
+unexpired lease. Missing or changed context blocks publication.
+
+The external Git proxy invokes the hidden `agent-push` controller entrypoint for
+a normal task-branch push. The controller initializes registration, drives AXI,
+checks durable gate results, publishes the exact validated head, and reconciles
+the author's worktree through guarded synchronization. Retries reuse the launch
+identity; a completed publication can be reused only with matching durable
+evidence and a fresh live-remote check.
+
+This mode requires Intent, Rebase, Review, Document, Lint and repository gates;
+caller-provided skips cannot omit them. The built-in Test, PR and CI steps are
+always skipped. Only the executor's final publication uses `git_binary` directly;
+that selection is not an environment bypass inherited by pipeline agents.
+Unresolved findings, overrides, incomplete evidence or a changed destination
+prevent the remote mutation. Successful publication produces a private JSON
+receipt under `NM_HOME/git-push-receipts` without the raw intent.
+
+GitLab publication requests `ci.skip` for the branch-push pipeline. This does
+not suppress merge-request pipelines. The external workflow must select and
+verify its one required full CI graph, manage MR creation, and enforce independent
+review and merge admission. This setting alone does not prevent duplicate MR and
+integration-branch pipelines, establish independent reviewer approval, or authorize
+canonical-branch publication.
+
+For this integration-CI mode, both the freshly pinned trusted branch and the
+published commit must start their project-owned workflow rules with these two
+refusals (either order), followed by an unconditional rule admitting the configured
+integration branch. An inherited or conditional refusal is insufficient:
+
+```yaml
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH =~ /^task\//'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+```
+
+Existing stage and release branch rules follow normally. The proxy checks this
+contract before remote mutation and fails closed if it is missing. Activating a
+workflow with CI owned by the MR requires a separately accepted validation mode.
+
+A canonical push must contain the exact head of a completed, clean task run
+bound to the same assignment. It reuses that evidence rather than running AXI
+again. Hosted `git publish` additionally calls the startup-bound publisher with
+that validated SHA; the worker refuses a workspace whose head has changed.
+Normal branch protections, publication authority and independent MR review
+requirements still apply. A configured proxy refuses ordinary worktree creation
+if the launcher's strict CoW creator is missing.
+
 ### auto_fix
 
 Maximum follow-up auto-fix attempts per step. Set a step to `0` to disable the follow-up auto-fix loop, so findings require manual approval.

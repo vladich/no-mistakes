@@ -21,6 +21,15 @@ import (
 // Used as a base when there is no prior commit to diff against.
 const EmptyTreeSHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
+type executableContextKey struct{}
+
+// WithExecutable scopes controller-owned Git calls to a launcher-validated
+// executable. Unlike a bypass environment variable, this selection is private
+// to the caller's Go context and is not inherited by pipeline agent commands.
+func WithExecutable(ctx context.Context, executable string) context.Context {
+	return context.WithValue(ctx, executableContextKey{}, executable)
+}
+
 // IsZeroSHA returns true if the SHA is the null/zero ref that git uses for
 // new or deleted branches (40 zeros).
 func IsZeroSHA(sha string) bool {
@@ -99,7 +108,11 @@ func runInDirWithEnvRaw(ctx context.Context, dir string, extraEnv []string, args
 }
 
 func runInDirWithEnvAndInputRaw(ctx context.Context, dir string, extraEnv []string, input string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	executable := "git"
+	if selected, ok := ctx.Value(executableContextKey{}).(string); ok && selected != "" {
+		executable = selected
+	}
+	cmd := exec.CommandContext(ctx, executable, args...)
 	cmd.Dir = dir
 	cmd.Env = append(nonInteractiveEnvForContext(ctx, dir), extraEnv...)
 	if input != "" {

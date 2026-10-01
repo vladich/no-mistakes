@@ -1465,6 +1465,8 @@ func (m *RunManager) startRunWithIntentSourceLocked(ctx context.Context, repo *d
 	var worktreeErr error
 	if cowtree != "" {
 		worktreeErr = git.WorktreeAddCoW(ctx, gateDir, wtDir, headSHA, repo.WorkingPath, cowtree)
+	} else if globalCfg.AgentGitProxy != nil {
+		worktreeErr = fmt.Errorf("agent Git proxy requires the launcher's strict CoW creator")
 	} else {
 		worktreeErr = git.WorktreeAdd(ctx, gateDir, wtDir, headSHA)
 	}

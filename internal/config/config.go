@@ -136,14 +136,17 @@ const (
 
 // GlobalConfig represents ~/.no-mistakes/config.yaml.
 type GlobalConfig struct {
-	SourceYAML           []byte              `yaml:"-"`
-	Agent                types.AgentName     `yaml:"agent"`
-	Agents               []types.AgentName   `yaml:"-"`
-	ACPXPath             string              `yaml:"acpx_path"`
-	ForgejoAXIPath       string              `yaml:"forgejo_axi_path"`
-	ACPRegistryOverrides map[string]string   `yaml:"acp_registry_overrides"`
-	AgentPathOverride    map[string]string   `yaml:"agent_path_override"`
-	AgentArgsOverride    map[string][]string `yaml:"agent_args_override"`
+	// AgentGitProxy is launcher-owned publication configuration. Repository
+	// input must never enable, disable, or alter this mode.
+	AgentGitProxy        *AgentGitProxyConfig `yaml:"agent_git_proxy,omitempty"`
+	SourceYAML           []byte               `yaml:"-"`
+	Agent                types.AgentName      `yaml:"agent"`
+	Agents               []types.AgentName    `yaml:"-"`
+	ACPXPath             string               `yaml:"acpx_path"`
+	ForgejoAXIPath       string               `yaml:"forgejo_axi_path"`
+	ACPRegistryOverrides map[string]string    `yaml:"acp_registry_overrides"`
+	AgentPathOverride    map[string]string    `yaml:"agent_path_override"`
+	AgentArgsOverride    map[string][]string  `yaml:"agent_args_override"`
 	// AgentConfig is the harness-neutral per-agent tuning map (agent_config):
 	// model and reasoning effort stated once in a common spelling, mapped down
 	// to each harness's own mechanism by internal/agentcfg. It is additive to
@@ -211,6 +214,7 @@ type GlobalConfig struct {
 
 // globalConfigRaw is the on-disk YAML representation with duration as string.
 type globalConfigRaw struct {
+	AgentGitProxy           *AgentGitProxyConfig       `yaml:"agent_git_proxy"`
 	Agent                   agentList                  `yaml:"agent"`
 	ACPXPath                string                     `yaml:"acpx_path"`
 	ForgejoAXIPath          string                     `yaml:"forgejo_axi_path"`
@@ -684,6 +688,7 @@ type AutoFix struct {
 
 // Config is the merged result of global + per-repo configuration.
 type Config struct {
+	AgentGitProxy         *AgentGitProxyConfig
 	ReplayGlobalYAML      []byte
 	ReplayRepoYAML        []byte
 	TrustedConfigSHA      string
@@ -2331,6 +2336,10 @@ func LoadGlobalFromBytes(data []byte) (*GlobalConfig, error) {
 	}
 	cfg.AutoFix = raw.AutoFix
 	cfg.CI = raw.CI
+	cfg.AgentGitProxy = raw.AgentGitProxy
+	if err := cfg.AgentGitProxy.Validate(); err != nil {
+		return nil, err
+	}
 	cfg.Rebase = raw.Rebase
 	cfg.Commit = raw.Commit
 	cfg.Intent = raw.Intent
@@ -3214,6 +3223,7 @@ func merge(global *GlobalConfig, repo *RepoConfig, override *RepositoryOverride)
 		ProtectedPaths: repo.ProtectedPaths,
 		AutoFix:        af,
 		CI:             ci,
+		AgentGitProxy:  global.AgentGitProxy,
 		Rebase:         rebase,
 		Commit:         commit,
 		Intent:         intent,

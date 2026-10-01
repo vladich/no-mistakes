@@ -194,7 +194,11 @@ func stepGitRun(sctx *pipeline.StepContext, args ...string) (string, error) {
 
 // stepGitRunRaw preserves NUL-delimited paths and porcelain status columns.
 func stepGitRunRaw(sctx *pipeline.StepContext, args ...string) (string, error) {
-	cmd := stepCmd(sctx, "git", args...)
+	return stepGitRunExecutable(sctx, "git", args...)
+}
+
+func stepGitRunExecutable(sctx *pipeline.StepContext, executable string, args ...string) (string, error) {
+	cmd := stepCmd(sctx, executable, args...)
 	cmd.Env = git.NonInteractiveEnvFrom(cmd.Env, sctx.WorkDir)
 	out, err := cmd.Output()
 	if err != nil {
@@ -230,7 +234,14 @@ func stepGitPush(sctx *pipeline.StepContext, remote, ref, expectedSHA string, fo
 // explicit source SHA (rather than HEAD) is what lets a caller publish exactly
 // the commit it verified, even if the worktree moves underneath it.
 func stepGitPushCommit(sctx *pipeline.StepContext, remote, commitSHA, ref, expectedSHA string, forceWithLease bool) error {
-	args := []string{"push", remote}
+	args := []string{"push"}
+	if sctx.Config != nil && sctx.Config.AgentGitProxy != nil {
+		// GitLab suppresses the branch-push pipeline. Its MR pipeline remains
+		// eligible, providing the one required full graph for this candidate.
+		args = append(args, "-o", "ci.skip")
+	}
+
+	args = append(args, remote)
 	if forceWithLease {
 		if expectedSHA != "" {
 			args = append(args, fmt.Sprintf("--force-with-lease=%s:%s", ref, expectedSHA))
@@ -239,7 +250,13 @@ func stepGitPushCommit(sctx *pipeline.StepContext, remote, commitSHA, ref, expec
 		}
 	}
 	args = append(args, commitSHA+":"+ref)
-	_, err := stepGitRun(sctx, args...)
+	executable := "git"
+	if sctx.Config != nil && sctx.Config.AgentGitProxy != nil {
+		// Only the executor's validated publication uses the real binary. Agent
+		// subprocesses retain the proxy; no inherited flag can bypass it.
+		executable = sctx.Config.AgentGitProxy.GitBinary
+	}
+	_, err := stepGitRunExecutable(sctx, executable, args...)
 	return err
 }
 

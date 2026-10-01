@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -28,8 +28,12 @@ func testSocketPath(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	return filepath.Join(dir, "s.sock")
+	p := paths.WithRoot(dir)
+	if err := p.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(p.Socket()); _ = os.RemoveAll(dir) })
+	return p.Socket()
 }
 
 func startTestIPCServer(t *testing.T, sock string) *ipc.Server {

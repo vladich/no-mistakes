@@ -35,7 +35,7 @@ func guardGateControl(cmd *cobra.Command) error {
 func mutatesPipelineControl(cmd *cobra.Command) bool {
 	path := cmd.CommandPath()
 	switch path {
-	case "no-mistakes", "no-mistakes init", "no-mistakes eject", "no-mistakes rerun",
+	case "no-mistakes", "no-mistakes init", "no-mistakes agent-push", "no-mistakes agent-publish", "no-mistakes eject", "no-mistakes rerun",
 		"no-mistakes axi run", "no-mistakes axi respond", "no-mistakes axi abort",
 		"no-mistakes daemon start", "no-mistakes daemon stop", "no-mistakes daemon restart",
 		"no-mistakes update":

@@ -435,6 +435,27 @@ func (d *DB) GetRunsByRepoHead(repoID, branch, headSHA string) ([]*Run, error) {
 	return runs, rows.Err()
 }
 
+// GetPublishedTaskRunsByHead returns bounded exact completed publications.
+func (d *DB) GetPublishedTaskRunsByHead(repoID, headSHA string) ([]*Run, error) {
+	rows, err := d.sql.Query(`SELECT `+runColumns+` FROM runs WHERE repo_id = ?
+		AND head_sha = ? AND last_pushed_sha = ? AND status = ?
+		AND branch LIKE 'task/%' ORDER BY created_at DESC, id DESC LIMIT 32`,
+		repoID, headSHA, headSHA, types.RunCompleted)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var runs []*Run
+	for rows.Next() {
+		run := &Run{}
+		if err := scanRun(rows, run); err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
 // GetActiveRun returns the currently active run (pending or running) for a repo,
 // if any. When branch is non-empty, only a run on that exact branch is returned
 // - the setup wizard relies on this to decide whether a new run is needed for

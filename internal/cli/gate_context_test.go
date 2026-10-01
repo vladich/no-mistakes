@@ -17,6 +17,8 @@ func TestGateControlPolicyCoversEveryMutationEntrypoint(t *testing.T) {
 	}{
 		{args: nil, mutates: true},
 		{args: []string{"init"}, mutates: true},
+		{args: []string{"agent-push"}, mutates: true},
+		{args: []string{"agent-publish"}, mutates: true},
 		{args: []string{"eject"}, mutates: true},
 		{args: []string{"rerun"}, mutates: true},
 		{args: []string{"sync"}, mutates: true},
