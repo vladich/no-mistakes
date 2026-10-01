@@ -52,9 +52,13 @@ func TestIsolatedTaskGates(t *testing.T) {
 			_, _ = first.runGit(context.Background(), first.WorkDir, "worktree", "remove", "--force", task.dir)
 		})
 		task.env = map[string]string{"NM_HOME": task.h.NMHome, "HOME": task.h.HomeDir, "FAKEAGENT_LOG": task.h.AgentLog}
-		for n := 0; n < 2; n++ {
-			if out, err := task.h.RunInDirWithEnv(task.dir, task.env, "init", "--isolated", "--no-user-skill"); err != nil {
-				t.Fatalf("task %d init/refresh: %v\n%s", i, err, out)
+		// The first daemon models the already-active legacy task. Only the
+		// new task needs isolated registration and its idempotent refresh.
+		if i == 1 {
+			for n := 0; n < 2; n++ {
+				if out, err := task.h.RunInDirWithEnv(task.dir, task.env, "init", "--isolated", "--no-user-skill"); err != nil {
+					t.Fatalf("task %d init/refresh: %v\n%s", i, err, out)
+				}
 			}
 		}
 		file := filepath.Join(task.dir, "isolated.txt")

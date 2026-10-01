@@ -58,10 +58,13 @@ trap 'reap_inventory; if [[ "${OWNED_INVENTORY}" -eq 1 ]]; then rm -rf "$NM_E2E_
 
 # Default args match the historical Makefile e2e target; callers may override.
 if [[ "$#" -eq 0 ]]; then
-  # The user-journey matrix runs native backends serially because each case
-  # owns process-wide environment. Four backends plus the remaining package
-  # journeys no longer fit the historical five-minute package budget.
-  set -- -tags=e2e -count=1 -timeout 480s ./internal/e2e/... ./internal/pipeline/steps/...
+  # Journeys own process-wide environment and therefore run serially.
+  # The expanded suite reached its final verification-plan cases at the old
+  # eight-minute package alarm, while each active case was only seconds old
+  # (CI run 36866320849). Give completed work a finite suite margin and emit
+  # per-case progress so a slow suite stays distinguishable from a stuck case.
+  # CLI calls and daemon acquisition retain their own much shorter deadlines.
+  set -- -v -tags=e2e -count=1 -timeout 720s ./internal/e2e/... ./internal/pipeline/steps/...
 fi
 
 go test "$@"
