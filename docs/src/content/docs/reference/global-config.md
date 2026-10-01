@@ -770,10 +770,15 @@ review and merge admission. This setting alone does not prevent duplicate MR and
 integration-branch pipelines, establish independent reviewer approval, or authorize
 canonical-branch publication.
 
-For this integration-CI mode, both the freshly pinned trusted branch and the
+For this integration-CI mode, both the freshly fetched integration branch and the
 published commit must start their project-owned workflow rules with these two
 refusals (either order), followed by an unconditional rule admitting the configured
 integration branch. An inherited or conditional refusal is insufficient:
+
+The published candidate must contain the current integration revision. A moved
+integration branch requires another rebase and validation. A separate release or
+default branch remains the trusted repository-config authority and need not carry
+the integration branch's CI file.
 
 ```yaml
 workflow:

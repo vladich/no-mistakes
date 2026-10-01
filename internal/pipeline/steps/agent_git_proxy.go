@@ -46,17 +46,8 @@ func assertAgentGitProxyPublication(sctx *pipeline.StepContext, branch, pushURL,
 	if worktrees.Canonical(sctx.Repo.WorkingPath) != worktrees.Canonical(context.CheckoutRoot) {
 		return fmt.Errorf("agent Git proxy task context changed checkout during validation")
 	}
-	for _, revision := range []string{sctx.Config.TrustedConfigSHA, head} {
-		if revision == "" {
-			return fmt.Errorf("agent Git proxy has no pinned trusted CI revision")
-		}
-		workflow, err := stepGitRun(sctx, "show", revision+":.gitlab-ci.yml")
-		if err != nil {
-			return fmt.Errorf("read project-owned CI workflow: %w", err)
-		}
-		if err := agentgitproxy.ValidateIntegrationWorkflow([]byte(workflow), context.IntegrationBranch); err != nil {
-			return err
-		}
+	if err := assertAgentGitProxyCI(sctx, context.IntegrationBranch, pushURL, head); err != nil {
+		return err
 	}
 	steps, err := sctx.DB.GetStepsByRun(sctx.Run.ID)
 	if err != nil {
@@ -81,6 +72,34 @@ func assertAgentGitProxyPublication(sctx *pipeline.StepContext, branch, pushURL,
 	for _, name := range []types.StepName{types.StepIntent, types.StepRebase, types.StepReview, types.StepDocument, types.StepLint} {
 		if !seen[name] {
 			return fmt.Errorf("agent Git proxy is missing %s evidence", name)
+		}
+	}
+	return nil
+}
+
+func assertAgentGitProxyCI(sctx *pipeline.StepContext, integrationBranch, pushURL, head string) error {
+	// CI belongs to the integration branch. A separate release/default branch
+	// may legitimately have no CI file; it remains the repo-config authority.
+	ciRef := "refs/no-mistakes/agent-ci/" + sctx.Run.ID
+	if _, err := stepGitRun(sctx, "fetch", "--no-tags", "--no-write-fetch-head", pushURL,
+		"+refs/heads/"+integrationBranch+":"+ciRef); err != nil {
+		return fmt.Errorf("fetch integration CI authority: %w", err)
+	}
+	base, err := stepGitRun(sctx, "rev-parse", "--verify", ciRef+"^{commit}")
+	if err != nil {
+		return fmt.Errorf("resolve integration CI authority: %w", err)
+	}
+	base = strings.TrimSpace(base)
+	if _, err := stepGitRun(sctx, "merge-base", "--is-ancestor", base, head); err != nil {
+		return fmt.Errorf("integration advanced beyond the validated candidate; rebase and validate again: %w", err)
+	}
+	for _, revision := range []string{base, head} {
+		workflow, err := stepGitRun(sctx, "show", revision+":.gitlab-ci.yml")
+		if err != nil {
+			return fmt.Errorf("read project-owned CI workflow: %w", err)
+		}
+		if err := agentgitproxy.ValidateIntegrationWorkflow([]byte(workflow), integrationBranch); err != nil {
+			return err
 		}
 	}
 	return nil

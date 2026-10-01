@@ -54,6 +54,10 @@ func TestAgentGitProxyAutomaticPublicationJourney(t *testing.T) {
 	origin := "git@gitlab.test:ater/proxy.git"
 	mustGit(h.WorkDir, "remote", "set-url", "origin", origin)
 	mustGit(h.UpstreamDir, "config", "receive.advertisePushOptions", "true")
+	// The default/release branch owns trusted repo settings, while main owns
+	// this project's integration CI. The release snapshot has no CI file.
+	mustGit(h.UpstreamDir, "branch", "release", "refs/heads/main")
+	mustGit(h.UpstreamDir, "symbolic-ref", "HEAD", "refs/heads/release")
 	workflow := fmt.Sprintf("workflow:\n  rules:\n    - if: '%s'\n      when: never\n    - if: '%s'\n      when: never\n    - if: '$CI_COMMIT_BRANCH == \"main\"'\nverify:\n  script: ['true']\n", agentgitproxy.SuppressMR, agentgitproxy.SuppressTask)
 	h.CommitChange("main", ".gitlab-ci.yml", workflow, "declare single integration CI owner")
 	mustGit(h.WorkDir, "push", "origin", "main")
