@@ -27,9 +27,9 @@ import (
 //     every pipeline agent runs with <dir>/<run id> as its cwd, which is the
 //     whole point of the setting (mise/direnv resolve by path ancestry), and
 //     the run records that directory.
-//   - the default placement under NM_HOME is never used for that run, and when
-//     the run ends only its own directory is gone - the operator's own files in
-//     that directory are untouched.
+//   - the default placement under NM_HOME is never used for that run. Its
+//     worktree survives completion and daemon restart. Only explicit caller
+//     cleanup removes it, preserving the operator's neighboring files.
 //
 // The unit tests own each seam; this is the wiring check that the printed
 // guidance, the config, run creation, the agent cwd, and cleanup all agree on
@@ -135,10 +135,29 @@ func TestWorktreeRootJourney(t *testing.T) {
 	t.Logf("run %s recorded worktree_dir %s; the default placement %s was never created",
 		run.ID, recorded, defaultDir)
 
-	// 8. Cleanup removed the run's own directory and nothing else in the
-	// operator's directory. Cleanup runs after the run reaches its terminal
-	// status, so this waits for it rather than sampling once.
-	waitForRemoval(t, wantDir, 30*time.Second)
+	// 8. A completed worktree remains usable, including after daemon restart.
+	if got, err := os.ReadFile(filepath.Join(wantDir, "placed.txt")); err != nil || string(got) != "placed run worktrees\n" {
+		t.Fatalf("completed worktree was not retained: %q, %v", got, err)
+	}
+	repair := filepath.Join(wantDir, "unfinished.txt")
+	if err := os.WriteFile(repair, []byte("unfinished repair\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := h.Run("daemon", "restart"); err != nil {
+		t.Fatalf("restart with retained work: %v\n%s", err, out)
+	}
+	if got, err := os.ReadFile(repair); err != nil || string(got) != "unfinished repair\n" {
+		t.Fatalf("restart lost unfinished work: %q, %v", got, err)
+	}
+	if out, err := h.RunInDir(h.WorkDir, "axi", "cleanup", "--run", run.ID); err == nil || !strings.Contains(out, "uncommitted") {
+		t.Fatalf("cleanup must refuse dirty work: %v\n%s", err, out)
+	}
+	if out, err := h.RunInDir(h.WorkDir, "axi", "cleanup", "--run", run.ID, "--discard-uncommitted"); err != nil {
+		t.Fatalf("explicit caller cleanup: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(wantDir); !os.IsNotExist(err) {
+		t.Fatalf("explicit cleanup left the run worktree: %v", err)
+	}
 	entries, err := os.ReadDir(runsRoot)
 	if err != nil {
 		t.Fatalf("read runs root: %v", err)
@@ -156,22 +175,6 @@ func TestWorktreeRootJourney(t *testing.T) {
 		t.Errorf("operator's own file in the configured root did not survive: %v", err)
 	}
 	t.Logf("after the run, %s holds only the operator's own %s", runsRoot, filepath.Base(operatorFile))
-}
-
-// waitForRemoval waits for the daemon's run cleanup to remove dir.
-func waitForRemoval(t *testing.T, dir string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Errorf("run worktree %q was still present %v after the run finished", dir, timeout)
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
 }
 
 // worktreeRootEntryFromGuidance reads the config entry line init printed,
