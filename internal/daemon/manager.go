@@ -55,7 +55,8 @@ type RunManager struct {
 	paths        *paths.Paths
 	steps        StepFactory
 
-	branchLocks sync.Map // repoID+"/"+branch → *sync.Mutex
+	cleanupMu   sync.Mutex // serializes explicit worktree removal
+	branchLocks sync.Map   // repoID+"/"+branch → *sync.Mutex
 
 	// evalCaptureMu serializes automatic eval collection. Concurrent runs
 	// finishing together would otherwise write the same per-repository object
@@ -437,7 +438,7 @@ func (m *RunManager) resumeRecoveredRun(plan recoveredRunPlan) {
 			cancel(nil)
 			_ = plan.agent.Close()
 			m.closeSubscribers(plan.run.ID)
-			m.removeRunWorktree(plan.repo.ID, plan.run.ID, plan.gateDir, plan.workDir, "resumed_run_finished")
+			m.retainRunWorktree(plan.repo.ID, plan.run.ID, plan.workDir, "resumed_run_finished")
 			// A recovered run is a finished run too. This is the second of the
 			// two completion boundaries, and leaving it out is what let a run
 			// resumed after a daemon restart keep its empty evidence directory
@@ -625,28 +626,11 @@ func (m *RunManager) cleanupRunEvidence(cfg *config.Config, runID string) {
 	reapEvidence(m.db, root, policy, time.Now())
 }
 
-// removeRunWorktree sweeps processes before deciding whether to remove the
-// directory, so refusal retention cannot keep escaped workers alive.
-//
-// Every removal of a run worktree this package performs goes through here, and
-// none calls git.WorktreeRemove directly, because the ordering is easy to forget
-// at one site and invisible when forgotten - a run whose setup failed, whose
-// execution returned, or which was resumed after a crash all reach this point by
-// different routes. reason distinguishes the routes in the log.
-func (m *RunManager) removeRunWorktree(repoID, runID, gateDir, wtDir, reason string) {
+// retainRunWorktree ends process ownership but retains every file. Only the
+// caller's explicit CleanupRunWorktree request may discard a run's checkout.
+func (m *RunManager) retainRunWorktree(repoID, runID, wtDir, reason string) {
 	m.sweepRunWorktreeProcesses(repoID, runID, wtDir)
-	run, err := m.db.GetRun(runID)
-	if err != nil {
-		slog.Warn("preserving run worktree: cannot read run", "run_id", runID, "error", err)
-		return
-	}
-	if refusal := protectedPathCleanupReason(m.db, run); refusal != "" {
-		slog.Warn("preserving run worktree", "run_id", runID, "path", wtDir, "reason", refusal)
-		return
-	}
-	if err := git.WorktreeRemove(context.Background(), gateDir, wtDir); err != nil {
-		slog.Warn("failed to remove run worktree", "reason", reason, "run_id", runID, "path", wtDir, "error", err)
-	}
+	slog.Info("run worktree retained until caller cleanup", "reason", reason, "run_id", runID, "path", wtDir)
 }
 
 // closeSubscribers soft-closes every subscriber for a run and marks the run
@@ -1484,7 +1468,7 @@ func (m *RunManager) startRunWithIntentSourceLocked(ctx context.Context, repo *d
 	bgOwnsWorktree := false
 	defer func() {
 		if !bgOwnsWorktree {
-			m.removeRunWorktree(repo.ID, run.ID, gateDir, wtDir, "run_setup_failed")
+			m.retainRunWorktree(repo.ID, run.ID, wtDir, "run_setup_failed")
 		}
 	}()
 
@@ -1694,7 +1678,7 @@ func (m *RunManager) startRunWithIntentSourceLocked(ctx context.Context, repo *d
 			ag.Close()
 			// Close subscriber channels for this run.
 			m.closeSubscribers(run.ID)
-			m.removeRunWorktree(repo.ID, run.ID, gateDir, wtDir, "run_finished")
+			m.retainRunWorktree(repo.ID, run.ID, wtDir, "run_finished")
 			m.cleanupRunEvidence(cfg, run.ID)
 			// Remove tracking.
 			m.mu.Lock()

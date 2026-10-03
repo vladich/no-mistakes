@@ -760,30 +760,12 @@ func reportUnusableWorktreeRoots(d *db.DB, layout *worktrees.Layout) {
 	}
 }
 
-// cleanupOrphanWorktrees removes worktree directories left behind by runs
-// that are no longer active. It is DB-aware: a worktree is only removed when
-// its run row is terminal, or when there is no matching run row at all.
-// This is what keeps cleanup from deleting the checkout out from under a
-// pipeline that is still actually running (see skipWorktreeCleanup).
-// Called from recoverOnStartup after
-// RecoverStaleRuns, so in the normal single-daemon path every run this loop
-// sees has already been resolved to a terminal status; it is factored out
-// separately so it can also be exercised - and its DB-aware skip behavior
-// verified - independent of stale-run recovery's side effects. Worktrees the
-// operator placed outside this tree are named by recordedOrphanWorktrees, which
-// never walks a directory it does not own.
-//
-// Every directory it is going to remove is swept in ONE process snapshot before
-// any of them is removed. The sweep-before-removal invariant is what matters
-// (see procreap.SweepRunWorktrees), not that each directory gets a snapshot of
-// its own: reading the process table is the expensive part, a scoped sweep has
-// no age floor so every process on the machine is a candidate, and this whole
-// pass runs before the daemon binds its socket, against the startup budget. A
-// crash that leaves several directories behind would otherwise make the daemon
-// slower to start the more there is to clean up.
+// cleanupOrphanWorktrees stops leftover workers without deleting their files.
+// Active runs are excluded. All terminal and unrecorded worktrees are retained
+// until the caller explicitly requests cleanup, including after daemon restart.
+// Batch the process sweep in one snapshot to bound startup cost.
 func cleanupOrphanWorktrees(d *db.DB, p *paths.Paths, leftover []db.RunWorktree) {
-	ctx := context.Background()
-	removable, repoDirs := defaultTreeOrphanWorktrees(d, p)
+	removable := defaultTreeOrphanWorktrees(d, p)
 	removable = append(removable, recordedOrphanWorktrees(d, p, leftover)...)
 
 	sweepable := make([]procreap.Worktree, 0, len(removable))
@@ -793,30 +775,24 @@ func cleanupOrphanWorktrees(d *db.DB, p *paths.Paths, leftover []db.RunWorktree)
 	sweepRunWorktrees(p.WorktreesDir(), sweepable, "worktree_cleanup")
 
 	for _, wt := range removable {
-		removeOrphanWorktree(ctx, wt)
-	}
-	for _, dir := range repoDirs {
-		os.Remove(dir)
+		slog.Info("run worktree retained until caller cleanup", "run_id", wt.runID, "path", wt.dir)
 	}
 }
 
-// orphanWorktree is one run worktree directory startup cleanup has decided it
-// may remove, resolved before anything is swept or removed.
+// orphanWorktree identifies a retained directory whose workers may need reaping.
 type orphanWorktree struct {
-	gateDir string
-	dir     string
-	repoID  string
-	runID   string
+	dir    string
+	repoID string
+	runID  string
 }
 
 // defaultTreeOrphanWorktrees walks <NM_HOME>/worktrees, which no-mistakes owns
-// outright, and returns the run worktrees no run still owns plus the repository
-// directories to drop once they are empty.
-func defaultTreeOrphanWorktrees(d *db.DB, p *paths.Paths) (removable []orphanWorktree, repoDirs []string) {
+// outright, and returns inactive run worktrees for a scoped process sweep.
+func defaultTreeOrphanWorktrees(d *db.DB, p *paths.Paths) (removable []orphanWorktree) {
 	wtRoot := p.WorktreesDir()
 	entries, err := os.ReadDir(wtRoot)
 	if err != nil {
-		return nil, nil // directory may not exist yet
+		return nil // directory may not exist yet
 	}
 	for _, repoEntry := range entries {
 		if !repoEntry.IsDir() {
@@ -832,18 +808,16 @@ func defaultTreeOrphanWorktrees(d *db.DB, p *paths.Paths) (removable []orphanWor
 				continue
 			}
 			wt := orphanWorktree{
-				gateDir: p.RepoDir(repoEntry.Name()),
-				dir:     filepath.Join(repoPath, runEntry.Name()),
-				repoID:  repoEntry.Name(),
-				runID:   runEntry.Name(),
+				dir:    filepath.Join(repoPath, runEntry.Name()),
+				repoID: repoEntry.Name(),
+				runID:  runEntry.Name(),
 			}
 			if removableOrphanWorktree(d, wt) {
 				removable = append(removable, wt)
 			}
 		}
-		repoDirs = append(repoDirs, repoPath)
 	}
-	return removable, repoDirs
+	return removable
 }
 
 // recordedOrphanWorktrees names the leftover worktrees of runs the operator
@@ -864,7 +838,7 @@ func recordedOrphanWorktrees(d *db.DB, p *paths.Paths, leftover []db.RunWorktree
 		if info, err := os.Stat(wt.Dir); err != nil || !info.IsDir() {
 			continue
 		}
-		candidate := orphanWorktree{gateDir: p.RepoDir(wt.RepoID), dir: wt.Dir, repoID: wt.RepoID, runID: wt.RunID}
+		candidate := orphanWorktree{dir: wt.Dir, repoID: wt.RepoID, runID: wt.RunID}
 		if removableOrphanWorktree(d, candidate) {
 			removable = append(removable, candidate)
 		}
@@ -890,20 +864,6 @@ func removableOrphanWorktree(d *db.DB, wt orphanWorktree) bool {
 		return false
 	}
 	return true
-}
-
-// removeOrphanWorktree removes one run worktree directory its caller has
-// already decided on and swept (see cleanupOrphanWorktrees).
-func removeOrphanWorktree(ctx context.Context, wt orphanWorktree) {
-	gateDir, wtPath := wt.gateDir, wt.dir
-	if err := git.WorktreeRemove(ctx, gateDir, wtPath); err != nil {
-		slog.Warn("git worktree remove failed, falling back to os.RemoveAll", "path", wtPath, "error", err)
-		if err := os.RemoveAll(wtPath); err != nil {
-			slog.Warn("failed to remove orphaned worktree", "path", wtPath, "error", err)
-		}
-	} else {
-		slog.Info("removed orphaned worktree", "path", wtPath)
-	}
 }
 
 // skipWorktreeCleanup reports whether the worktree directory for runID must
@@ -1429,6 +1389,17 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 		return &ipc.CancelRunResult{OK: true}, nil
 	})
 
+	srv.Handle(ipc.MethodCleanupRun, func(ctx context.Context, params json.RawMessage) (interface{}, error) {
+		if err := refuseNested(ctx, false); err != nil {
+			return nil, err
+		}
+		var p ipc.CleanupRunParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		return mgr.CleanupRunWorktree(ctx, p.RunID, p.DiscardUncommitted)
+	})
+
 	srv.HandleStream(ipc.MethodSubscribe, func(ctx context.Context, params json.RawMessage) (ipc.StreamFunc, error) {
 		var p ipc.SubscribeParams
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -1501,6 +1472,7 @@ func gateContextResult(result gatecontext.Result) ipc.GateContextResult {
 
 func runToInfo(d *db.DB, r *db.Run, steps []*db.StepResult) *ipc.RunInfo {
 	info := &ipc.RunInfo{
+		WorktreeDir:        r.WorktreePath(),
 		ID:                 r.ID,
 		RepoID:             r.RepoID,
 		Branch:             r.Branch,

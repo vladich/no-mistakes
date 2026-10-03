@@ -126,7 +126,7 @@ func TestRecoverOnStartup_DoesNotDeleteActiveRunWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A terminal run's worktree, for contrast: cleanup should remove this one.
+	// A terminal run also retains its worktree until an explicit cleanup request.
 	terminalRun, err := d.InsertRun(repo.ID, "old-branch", "headsha2", "basesha2")
 	if err != nil {
 		t.Fatal(err)
@@ -144,8 +144,8 @@ func TestRecoverOnStartup_DoesNotDeleteActiveRunWorktree(t *testing.T) {
 	if _, err := os.Stat(activeWT); err != nil {
 		t.Fatalf("active run worktree must survive cleanup, got: %v", err)
 	}
-	if _, err := os.Stat(terminalWT); !os.IsNotExist(err) {
-		t.Fatalf("terminal run worktree should have been cleaned up, stat err: %v", err)
+	if _, err := os.Stat(terminalWT); err != nil {
+		t.Fatalf("terminal run worktree must survive process cleanup: %v", err)
 	}
 
 	got, err := d.GetRun(activeRun.ID)

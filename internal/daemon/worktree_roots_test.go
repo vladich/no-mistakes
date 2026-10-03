@@ -141,15 +141,9 @@ func TestRunWorktreeIsCreatedInConfiguredRoot(t *testing.T) {
 	}
 }
 
-// TestRunSetupFailureLeavesNoWorktreeBehind covers the failures that happen
-// between creating the worktree and the run goroutine taking ownership of it.
-// Cleanup ownership is armed the moment the directory exists, so none of them can
-// leave it behind - in the operator's own worktree root, where it would sit until
-// the next daemon start noticed it.
-//
-// git identity configuration is the earliest of those failures: it reads the
-// checkout's git config, so a repository whose checkout is gone fails there.
-func TestRunSetupFailureLeavesNoWorktreeBehind(t *testing.T) {
+// TestRunSetupFailureRetainsWorktree preserves evidence even if setup fails
+// after creating the scratch checkout and before starting the run goroutine.
+func TestRunSetupFailureRetainsWorktree(t *testing.T) {
 	p, d := startTestDaemonWithSteps(t, func() []pipeline.Step {
 		return []pipeline.Step{&mockPassStep{name: types.StepReview}}
 	})
@@ -201,8 +195,11 @@ func TestRunSetupFailureLeavesNoWorktreeBehind(t *testing.T) {
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	for _, entry := range entries {
-		t.Errorf("setup failure left %q behind in the operator's worktree root", filepath.Join(root, entry.Name()))
+	if len(entries) != 1 {
+		t.Fatalf("setup failure should retain one worktree, got %d", len(entries))
+	}
+	if got, err := os.ReadFile(filepath.Join(root, entries[0].Name(), "test.txt")); err != nil || string(got) != "hello" {
+		t.Fatalf("setup failure lost scratch source: %q, %v", got, err)
 	}
 }
 
@@ -326,8 +323,8 @@ func TestCleanupOrphanWorktrees_ConfiguredRootRemovesOnlyRunDirectories(t *testi
 
 	cleanupOrphanWorktrees(d, p, leftoverRecordedRunWorktrees(d, p))
 
-	if _, err := os.Stat(terminalWT); !os.IsNotExist(err) {
-		t.Fatalf("terminal run worktree should have been cleaned up, stat err: %v", err)
+	if _, err := os.Stat(terminalWT); err != nil {
+		t.Fatalf("terminal run worktree must survive process cleanup: %v", err)
 	}
 	for _, keep := range []string{root, activeWT, operatorDir, operatorFile} {
 		if _, err := os.Stat(keep); err != nil {
@@ -372,7 +369,7 @@ func TestCleanupOrphanWorktrees_UnconfiguredRepoUsesDefaultRoot(t *testing.T) {
 
 	cleanupOrphanWorktrees(d, p, leftoverRecordedRunWorktrees(d, p))
 
-	if _, err := os.Stat(terminalWT); !os.IsNotExist(err) {
+	if _, err := os.Stat(terminalWT); err != nil {
 		t.Fatalf("default-root worktree should have been cleaned up, stat err: %v", err)
 	}
 }
@@ -614,8 +611,8 @@ func TestCleanupOrphanWorktrees_OperatorRootRemovesOnlyWhatARunRecorded(t *testi
 	cleanupOrphanWorktrees(d, p, leftoverRecordedRunWorktrees(d, p))
 
 	for _, gone := range []string{ownWT, otherWT} {
-		if _, err := os.Stat(gone); !os.IsNotExist(err) {
-			t.Errorf("recorded terminal run worktree %q should have been cleaned up, stat err: %v", gone, err)
+		if _, err := os.Stat(gone); err != nil {
+			t.Errorf("recorded terminal run worktree %q must be retained: %v", gone, err)
 		}
 	}
 	for _, keep := range []string{root, unclaimedWT, strayWT} {
@@ -753,8 +750,8 @@ func TestCleanupOrphanWorktrees_ReachesARootTheConfigNoLongerNames(t *testing.T)
 
 	cleanupOrphanWorktrees(d, p, leftoverRecordedRunWorktrees(d, p))
 
-	if _, err := os.Stat(recordedWT); !os.IsNotExist(err) {
-		t.Fatalf("recorded worktree in a root the config no longer names survived cleanup, stat err: %v", err)
+	if _, err := os.Stat(recordedWT); err != nil {
+		t.Fatalf("recorded worktree in a former root must be retained: %v", err)
 	}
 	if _, err := os.Stat(abandonedRoot); err != nil {
 		t.Errorf("cleanup removed the operator's directory itself: %v", err)

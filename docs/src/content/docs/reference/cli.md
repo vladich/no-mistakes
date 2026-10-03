@@ -474,6 +474,17 @@ Pipeline-created commits remain preserved in the gate and a recoverable cancella
 While a run is active, do not use `axi abort` or `no-mistakes rerun` to go fix a finding yourself.
 That cancels the pipeline's in-flight work and forces a full re-validation; use `axi respond --action fix` at the gate so the pipeline applies and re-checks the fix.
 
+## no-mistakes axi cleanup
+
+Remove one finished run's retained scratch worktree, after inspecting and preserving its work:
+
+```bash
+no-mistakes axi cleanup --run <id>
+no-mistakes axi cleanup --run <id> --discard-uncommitted
+```
+
+The run ID is required. Active runs and directories whose Git identity has changed are refused. The default refuses staged, unstaged, or untracked files; the second form explicitly authorizes discarding them. Repeating cleanup for an already absent worktree is harmless. Nested pipeline agents cannot request cleanup. Finishing, timing out, cancelling, or restarting a run never deletes its worktree. `axi status --run <id>` includes its recorded `worktree` path.
+
 ## no-mistakes eject
 
 Remove the gate from the current repository.

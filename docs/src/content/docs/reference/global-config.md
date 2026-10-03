@@ -42,7 +42,7 @@ step_quiet_warning: "10m"
 
 agent_timeout: "30m"
 
-review_agent_timeout: "30m"
+review_agent_timeout: "2h"
 
 test_agent_timeout: "30m"
 
@@ -593,7 +593,7 @@ That diagnostic carries the same measured evidence and adapter report described 
 |         |                        |
 | ------- | ---------------------- |
 | Type    | `string` (Go duration) |
-| Default | `30m`                  |
+| Default | `2h`                  |
 
 Accepts any positive Go `time.ParseDuration` string: `5m`, `30m`, `1h`, etc.
 Non-positive values are rejected when loading the global config.

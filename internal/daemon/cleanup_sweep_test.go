@@ -69,8 +69,8 @@ func TestCleanupOrphanWorktreesSweepsEveryRemovableDirectoryInOneSnapshot(t *tes
 		if !swept[dir] {
 			t.Errorf("removable worktree %q was not swept before removal", dir)
 		}
-		if _, err := os.Stat(dir); !os.IsNotExist(err) {
-			t.Errorf("worktree %q survived cleanup, stat err: %v", dir, err)
+		if _, err := os.Stat(dir); err != nil {
+			t.Errorf("worktree %q lost during process cleanup: %v", dir, err)
 		}
 	}
 	if swept[activeDefault] {

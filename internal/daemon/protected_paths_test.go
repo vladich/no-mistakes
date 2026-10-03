@@ -97,16 +97,9 @@ func TestProtectedPathRefusalCancellationCleanup(t *testing.T) {
 				assertProtectedWorktreePreserved(t, workDir, head)
 				return
 			}
-			deadline = time.Now().Add(15 * time.Second)
-			for {
-				if _, err := os.Stat(workDir); os.IsNotExist(err) {
-					return
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("explicit operator abort no longer cleans its worktree")
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
+			assertProtectedWorktreePreserved(t, workDir, head)
+			cleanupOrphanWorktrees(database, p, nil)
+			assertProtectedWorktreePreserved(t, workDir, head)
 		})
 	}
 }
@@ -375,15 +368,9 @@ func TestProtectedPathPushApprovalCannotSkipPublicationOrDiscardEdits(t *testing
 		t.Fatalf("published head = %s, want %s", got, headSHA)
 	}
 	t.Logf("after explicit resolution + respond fix: run=%s last_pushed_sha=%s bare-remote feature=%s", run.Status, *run.LastPushedSHA, gitOutput(t, publicationDir, "rev-parse", "refs/heads/feature"))
-	deadline = time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(workDir); os.IsNotExist(err) {
-			t.Logf("after successful publication: worktree stat=%v", err)
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	if _, err := os.Stat(workDir); err != nil {
+		t.Fatalf("successful publication lost the worktree before caller cleanup: %v", err)
 	}
-	t.Fatal("clean worktree was not removed after successful publication")
 }
 
 type protectedPathCommitStep struct {

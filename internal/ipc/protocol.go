@@ -28,6 +28,7 @@ const (
 	MethodRespond                 = "respond"
 	MethodAnswerReview            = "answer_review_question"
 	MethodCancelRun               = "cancel_run"
+	MethodCleanupRun              = "cleanup_run_worktree"
 	MethodGateContext             = "gate_context"
 	MethodAdmitPush               = "admit_push"
 	MethodHealth                  = "health"
@@ -257,6 +258,18 @@ type CancelRunParams struct {
 	RunID string `json:"run_id"`
 }
 
+// CleanupRunParams is an explicit caller request, separate from cancellation.
+type CleanupRunParams struct {
+	RunID              string `json:"run_id"`
+	DiscardUncommitted bool   `json:"discard_uncommitted,omitempty"`
+}
+
+type CleanupRunResult struct {
+	RunID   string `json:"run_id"`
+	Path    string `json:"path"`
+	Removed bool   `json:"removed"`
+}
+
 // GateContextParams asks the daemon to classify the authenticated caller.
 // CWD and MarkerPresent are evidence only; peer PID comes from the transport.
 type GateContextParams struct {
@@ -398,6 +411,7 @@ type ShutdownResult struct {
 
 // RunInfo is the IPC representation of a pipeline run.
 type RunInfo struct {
+	WorktreeDir      string                     `json:"worktree_dir,omitempty"`
 	VerificationPlan *verificationplan.Snapshot `json:"verification_plan"`
 	PiProfile        *agentcfg.PiProfile        `json:"pi_profile,omitempty"`
 

@@ -48,7 +48,7 @@ const (
 	// DefaultReviewAgentTimeout is the absolute wall-clock limit for one
 	// review or review-fix invocation. Every later invocation derives a fresh
 	// limit, so a stalled agent is bounded without charging the next turn.
-	DefaultReviewAgentTimeout = 30 * time.Minute
+	DefaultReviewAgentTimeout = 2 * time.Hour
 	// DefaultTestAgentTimeout bounds one Test-step agent invocation, including
 	// the post-test evidence-gathering turn and a Test-repair turn, so a stalled
 	// agent cannot leave a run active forever.
@@ -1154,7 +1154,7 @@ agent_timeout: "30m"
 # Absolute wall-clock limit for one Review agent invocation. Each optional
 # fixer and each fresh independent rereviewer receives a new full limit.
 # Activity is reported at expiry but does not reset this hard safety bound.
-review_agent_timeout: "30m"
+review_agent_timeout: "2h"
 
 # Maximum wall-clock time for one Test-step agent invocation, including the
 # post-test evidence-gathering turn. A stalled test agent parks for a decision

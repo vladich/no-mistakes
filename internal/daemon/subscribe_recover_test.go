@@ -567,20 +567,8 @@ func TestRecoverOnStartup_ResumesParkedRun(t *testing.T) {
 	if completed.ReviewApprovedHeadSHA == nil || *completed.ReviewApprovedHeadSHA != headSHA {
 		t.Fatalf("recovered review approval = %#v, want %s", completed.ReviewApprovedHeadSHA, headSHA)
 	}
-	// The executor marks the run terminal before its owner goroutine performs
-	// worktree cleanup. Wait for that cleanup rather than assuming it completed
-	// in the same scheduling slice, which is especially unreliable on Windows.
-	cleanupDeadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(worktree); os.IsNotExist(err) {
-			break
-		} else if err != nil {
-			t.Fatalf("stat recovered worktree: %v", err)
-		}
-		if time.Now().After(cleanupDeadline) {
-			t.Fatalf("recovered worktree still exists after cleanup: %s", worktree)
-		}
-		time.Sleep(20 * time.Millisecond)
+	if _, err := os.Stat(worktree); err != nil {
+		t.Fatalf("recovered run lost its worktree: %v", err)
 	}
 }
 
@@ -727,9 +715,9 @@ func TestRecoverCleansUpOrphanedWorktrees(t *testing.T) {
 		return []pipeline.Step{&mockPassStep{name: types.StepReview}}
 	}, 3*time.Second)
 
-	// Orphaned worktree directory should be removed.
-	if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {
-		t.Errorf("orphaned worktree dir still exists: %s", orphanDir)
+	// Unrecorded worktrees are preserved for recovery, too.
+	if _, err := os.Stat(orphanDir); err != nil {
+		t.Errorf("orphaned worktree was lost: %s", orphanDir)
 	}
 }
 
